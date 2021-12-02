@@ -1,0 +1,4 @@
+classes=80
+train=/home/jiao/ProjectDirectory/YOLOv3v4-ModelCompression-MultidatasetTraining-Multibackbone-master/datasets1/train.txt
+valid=/home/jiao/ProjectDirectory/YOLOv3v4-ModelCompression-MultidatasetTraining-Multibackbone-master/datasets1/val.txt
+names=data/coco.names

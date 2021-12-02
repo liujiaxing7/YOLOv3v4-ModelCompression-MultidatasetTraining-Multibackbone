@@ -1,0 +1,4 @@
+classes= 4
+train=/data/VOC/ICE/darknet/version1.0.3/train.txt
+valid=/data/VOC/ICE/darknet/version1.0.3/val.txt
+names=data/6wperson.names
