@@ -433,7 +433,7 @@ def compute_loss(p, targets, model):  # predictions, targets, model
 
 
 def compute_lost_KD(output_s, output_t, num_classes, batch_size):
-    T = 3.0
+    T = 10.0
     Lambda_ST = 0.001
     criterion_st = torch.nn.KLDivLoss(reduction='sum')
     output_s = torch.cat([i.view(-1, num_classes + 5) for i in output_s])

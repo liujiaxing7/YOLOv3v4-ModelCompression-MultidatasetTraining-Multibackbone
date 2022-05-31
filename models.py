@@ -751,7 +751,7 @@ class Darknet(nn.Module):
 
     def __init__(self, cfg, img_size=(416, 416), verbose=False, quantized=-1, a_bit=8, w_bit=8, FPGA=False,
                  quantizer_output=False, layer_idx=-1, reorder=False, TM=32, TN=32, steps=0, is_gray_scale=False,
-                 maxabsscaler=False, shortcut_way=-1):
+                 maxabsscaler=False, shortcut_way=-1,device=None):
         super(Darknet, self).__init__()
 
         if isinstance(cfg, str):
@@ -776,7 +776,11 @@ class Darknet(nn.Module):
                                                       is_gray_scale=is_gray_scale, maxabsscaler=maxabsscaler,
                                                       shortcut_way=shortcut_way)
         self.yolo_layers = get_yolo_layers(self)
-        # torch_utils.initialize_weights(self)
+
+        # self.stu_feature_adap=nn.Sequential(nn.AdaptiveAvgPool2d((None,1)))
+        self.stu_feature_adap=nn.AdaptiveAvgPool2d((None,1))
+        self.stu_feature_adap.to(  device)
+
 
         # Darknet Header https://github.com/AlexeyAB/darknet/issues/2914#issuecomment-496675346
         self.version = np.array([0, 2, 5], dtype=np.int32)  # (int32) version info: major, minor, revision
@@ -839,19 +843,22 @@ class Darknet(nn.Module):
                     l = [i - 1] + module.layers  # layers
                     sh = [list(x.shape)] + [list(out[i].shape) for i in module.layers]  # shapes
                     str = ' >> ' + ' + '.join(['layer %g %s' % x for x in zip(l, sh)])
-                x = module(x, out)  # Shortcut(), FeatureConcat()
+                x = module(x , out)  # Shortcut(), FeatureConcat()
             elif name == 'YOLOLayer':
-                yolo_out.append(module(x, out))
+                yolo_out.append(module(x , out))
             else:  # run module directly, i.e. mtype = 'convolutional', 'upsample', 'maxpool', 'batchnorm2d' etc.
                 if name == 'Upsample' and isinstance(x, list):
                     x[0] = module(x[0])
                     x[1] = module(x[1])
+
                 else:
                     x = module(x)
-                if name == "Sequential" and self.module_list[i + 1].__class__.__name__ != 'YOLOLayer':
-                    feature_out.append(x)
 
-            out.append(x if self.routs[i] else [])
+                if name == "Sequential" and self.module_list[i + 1].__class__.__name__ != 'YOLOLayer':
+
+                    feature_out.append(nn.AdaptiveAvgPool2d((None,1))(x))
+
+            out.append(x  if self.routs[i] else [])
             if verbose:
                 print('%g/%g %s -' % (i, len(self.module_list), name), list(x.shape), str)
                 str = ''
@@ -859,9 +866,11 @@ class Darknet(nn.Module):
         if self.training:  # train
             return yolo_out, feature_out
         elif ONNX_EXPORT:  # export
-            x = [torch.cat(x, 0) for x in zip(*yolo_out)]
-            return x[0], torch.cat(x[1:3], 1)  # scores, boxes: 3780x80, 3780x4
+            # x = [torch.cat(x, 0) for x in zip(*yolo_out)]
+            # return x[0], torch.cat(x[1:3], 1)  # scores, boxes: 3780x80, 3780x4
+            return yolo_out
         else:  # inference or test
+            # return yolo_out
             x, p = zip(*yolo_out)  # inference output, training output
             x = torch.cat(x, 1)  # cat yolo outputs
             if augment:  # de-augment results
@@ -870,7 +879,7 @@ class Darknet(nn.Module):
                 x[1][..., 0] = img_size[1] - x[1][..., 0]  # flip lr
                 x[2][..., :4] /= s[1]  # scale
                 x = torch.cat(x, 1)
-            return x, p, feature_out
+            return x, p
 
     def fuse(self, quantized=-1, FPGA=False):
         # Fuse Conv2d + BatchNorm2d layers throughout model

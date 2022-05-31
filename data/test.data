@@ -1,0 +1,4 @@
+classes=80
+train=/home/fandong/datasets1/train1.txt
+valid=/home/fandong/datasets1/val.txt
+names=data/test.names

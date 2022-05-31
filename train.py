@@ -1,5 +1,8 @@
 import argparse
-import time
+
+import numpy as np
+
+from utils.loss import ComputeLoss, compute_distillation_output_loss
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 from torch.utils.tensorboard import SummaryWriter
@@ -7,7 +10,6 @@ from torch.utils.tensorboard import SummaryWriter
 import test  # import test.py to get mAP after each epoch
 from models import *
 from utils.datasets import *
-from utils.loss import compute_distillation_output_loss
 from utils.utils import *
 from utils.prune_utils import *
 import math
@@ -30,7 +32,7 @@ hyp = {'giou': 3.54,  # giou loss gain
        'obj_pw': 1.0,  # obj BCELoss positive_weight
        'iou_t': 0.20,  # iou training threshold
        'lr0': 0.001,  # initial learning rate (SGD=5E-3, Adam=5E-4)
-       'lrf': 0.00005,  # final learning rate (with cos scheduler)
+       'lrf': 0.005,  # final learning rate (with cos scheduler)
        'momentum': 0.937,  # SGD momentum
        'weight_decay': 0.0005,  # optimizer weight decay
        'fl_gamma': 0.0,  # focal loss gamma (efficientDet default is gamma=1.5)
@@ -111,11 +113,11 @@ def train(hyp):
     steps = math.ceil(len(open(train_path).readlines()) / batch_size) * epochs
     model = Darknet(cfg, quantized=opt.quantized, a_bit=opt.a_bit, w_bit=opt.w_bit,
                     FPGA=opt.FPGA, steps=steps, is_gray_scale=opt.gray_scale, maxabsscaler=opt.maxabsscaler,
-                    shortcut_way=opt.shortcut_way).to(device)
+                    shortcut_way=opt.shortcut_way,device=device).to(device)
     print("model_train:--------------------------------------------")
     print(opt.quantized, opt.a_bit, opt.w_bit,
-          opt.FPGA, steps, opt.gray_scale, opt.maxabsscaler,
-          opt.shortcut_way)
+                    opt.FPGA, steps, opt.gray_scale, opt.maxabsscaler,
+                    opt.shortcut_way)
 
     if t_cfg:
         t_model = Darknet(t_cfg).to(device)
@@ -179,7 +181,7 @@ def train(hyp):
             load_darknet_weights(model, weights, pt=opt.pt, FPGA=opt.FPGA)
     if t_cfg:
         if t_weights.endswith('.pt'):
-            t_model.load_state_dict(torch.load(t_weights, map_location=device)['model'])
+            t_model.load_state_dict(torch.load(t_weights, map_location=device)['model'],strict=False)
         elif t_weights.endswith('.weights'):
             load_darknet_weights(t_model, t_weights)
         else:
@@ -199,6 +201,7 @@ def train(hyp):
     # for _ in range(epochs):
     #     scheduler.step()
     #     y.append(optimizer.param_groups[0]['lr'])
+    # y=np.array(y)
     # plt.plot(y, '.-', label='LambdaLR')
     # plt.xlabel('epoch')
     # plt.ylabel('LR')
@@ -214,7 +217,6 @@ def train(hyp):
     model.yolo_layers = model.module.yolo_layers  # move yolo layer indices to top level
 
     # Dataset
-    print("++++++++++++++++++",opt.cache_images)
     dataset = LoadImagesAndLabels(train_path, img_size, batch_size,
                                   augment=True,
                                   hyp=hyp,  # augmentation hyperparameters
@@ -222,7 +224,7 @@ def train(hyp):
                                   cache_images=opt.cache_images,
                                   single_cls=opt.single_cls,
                                   rank=opt.local_rank,
-                                  is_gray_scale=True if opt.gray_scale else False, method=1)
+                                  is_gray_scale=True if opt.gray_scale else False,method=1)
 
     testset = LoadImagesAndLabels(test_path, imgsz_test, batch_size // 4,
                                   hyp=hyp,
@@ -230,7 +232,7 @@ def train(hyp):
                                   cache_images=opt.cache_images,
                                   single_cls=opt.single_cls,
                                   rank=opt.local_rank,
-                                  is_gray_scale=True if opt.gray_scale else False, method=2)
+                                  is_gray_scale=True if opt.gray_scale else False,method=2)
 
     # 获得要剪枝的层
     if hasattr(model, 'module'):
@@ -263,8 +265,7 @@ def train(hyp):
 
     # Dataloader
     batch_size = min(batch_size, len(dataset))
-    nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 20])  # number of workers
-
+    nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
     dataloader = torch.utils.data.DataLoader(dataset,
                                              batch_size=int(batch_size / opt.world_size),
                                              num_workers=nw,
@@ -362,7 +363,7 @@ def train(hyp):
 
             # Multi-Scale
             if opt.multi_scale:
-                if ni / accumulate % 1 == 0:  # adjust img_size (67% - 150%) every 1 batch
+                if ni / accumulate % 1 == 0:  #  adjust img_size (67% - 150%) every 1 batch
                     img_size = random.randrange(grid_min, grid_max + 1) * gs
                 sf = img_size / max(imgs.shape[2:])  # scale factor
                 if sf != 1:
@@ -427,12 +428,11 @@ def train(hyp):
                                                        imgs.size(0),
                                                        img_size)
                     elif opt.KDstr == 0:
-                        soft_target = compute_distillation_output_loss(
-                            pred, output_t, model, "kl", 10, None)
+                        soft_target=compute_distillation_output_loss(
+                        pred, output_t, model, "kl", 10, None)
                     else:
                         print("please select KD strategy!")
                     loss += soft_target
-
             # Backward
             loss *= batch_size / 64  # scale loss
             if opt.mpt:
@@ -477,7 +477,7 @@ def train(hyp):
             # end batch ------------------------------------------------------------------------------------------------
 
         # Update scheduler
-        scheduler.step()
+        # scheduler.step()
 
         # Process epoch results
         if opt.ema:
@@ -525,6 +525,7 @@ def train(hyp):
         # Write
         if opt.local_rank in [-1, 0]:
             with open(results_file, 'a') as f:
+                f.write(s + '%10.3g' * 7 % results + '\n')  # P, R, mAP, F1, test_losses=(GIoU, obj, cls)
                 f.write(s + '%10.3g' * 7 % results + '\n')  # P, R, mAP, F1, test_losses=(GIoU, obj, cls)
             if len(opt.name) and opt.bucket:
                 os.system('gsutil cp results.txt gs://%s/results/results%s.txt' % (opt.bucket, opt.name))
@@ -599,12 +600,11 @@ def train(hyp):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--epochs', type=int, default=60)  # 500200 batches at bs 16, 117263 COCO images = 273 epochs
-    parser.add_argument('--batch-size', type=int, default=32)  # effective bs = batch_size * accumulate = 16 * 4 = 64
-    parser.add_argument('--cfg', type=str, default='cfg/prune80_V101.cfg', help='*.cfg path')
-    parser.add_argument('--t_cfg', type=str, default='cfg/yolov3_V1032.cfg',
-                        help='teacher model cfg file path for knowledge distillation')
-    parser.add_argument('--data', type=str, default='data/6wperson.data', help='*.data path')
+    parser.add_argument('--epochs', type=int, default=120)  # 500200 batches at bs 16, 117263 COCO images = 273 epochs
+    parser.add_argument('--batch-size', type=int, default=4)  # effective bs = batch_size * accumulate = 16 * 4 = 64
+    parser.add_argument('--cfg', type=str, default='cfg/yolov3tiny/yolov3-tiny3_33.cfg', help='*.cfg path')
+    parser.add_argument('--t_cfg', type=str, default='cfg/yolov5/yolov5s6.cfg', help='teacher model cfg file path for knowledge distillation')
+    parser.add_argument('--data', type=str, default='data/trainset.data', help='*.data path')
     parser.add_argument('--multi-scale', action='store_true', help='adjust (67%% - 150%%) img_size every 10 batches')
     parser.add_argument('--img-size', nargs='+', type=int, default=[416, 416], help='[min_train, max-train, test]')
     parser.add_argument('--rect', action='store_true', help='rectangular training')
@@ -614,8 +614,8 @@ if __name__ == '__main__':
     parser.add_argument('--evolve', action='store_true', help='evolve hyperparameters')
     parser.add_argument('--bucket', type=str, default='', help='gsutil bucket')
     parser.add_argument('--cache-images', action='store_true', help='cache images for faster training')
-    parser.add_argument('--weights', type=str, default='weights/prune80_V101_last.weights', help='initial weights path')
-    parser.add_argument('--t_weights', type=str, default='weights/yolov3_V1032_last.weights', help='teacher model weights')
+    parser.add_argument('--weights', type=str, default='', help='initial weights path')
+    parser.add_argument('--t_weights', type=str, default='weights/yolov5X.pt', help='teacher model weights')
     parser.add_argument('--KDstr', type=int, default=0, help='KD strategy')
     parser.add_argument('--name', default='', help='renames results.txt to results_name.txt if supplied')
     parser.add_argument('--device', default='', help='device id (i.e. 0 or 0,1 or cpu)')

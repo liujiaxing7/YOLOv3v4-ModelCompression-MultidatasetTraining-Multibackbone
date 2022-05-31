@@ -293,16 +293,20 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
 
         # Define labels
-        # if method==1:
         self.label_files=[]
         for x in self.img_files:
-                if 'JPEGImages' in x:
-                        self.label_files.append(x.replace('JPEGImages', 'labels').replace(os.path.splitext(x)[-1], '.txt'))
-                else:
-                        self.label_files.append(
-                                x.replace('image', 'labels').replace(os.path.splitext(x)[-1], '.txt'))
-        # self.label_files = [x.replace('JPEGImages', 'labels').replace(os.path.splitext(x)[-1], '.txt')
-        #                    for x in self.img_files]
+            if 'datasets1' in self.img_files:
+             self.label_files .append( x.replace('val2017', 'datasets1/labels').replace(os.path.splitext(x)[-1], '.txt'))
+            else:self.label_files .append( x.replace('images', 'labels').replace(os.path.splitext(x)[-1], '.txt'))
+
+
+
+        # if '/data/COCO/val2017' in self.img_files[0]:
+        #     self.label_files = [x.replace('/data/COCO/val2017',
+        #                                   '/home/jiao/ProjectDirectory/YOLOv3v4-ModelCompression-MultidatasetTraining-Multibackbone-master/datasets1/labels').replace(
+        #         os.path.splitext(x)[-1], '.txt')
+        #                             for x in self.img_files]
+
         # elif method==2:
         #     self.label_files = [x.replace('JPEGImages/val2017', 'labels').replace(os.path.splitext(x)[-1], '.txt')
         #                         for x in self.img_files]
@@ -310,7 +314,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         # Rectangular Training  https://github.com/ultralytics/yolov3/issues/232
         if self.rect:
             # Read image shapes (wh)
-            sp = '/home/jiao/ProjectDirectory/YOLOv3v4-ModelCompression-MultidatasetTraining-Multibackbone-master/test2.shapes'  # shapefile path
+            sp = '/home/fandong/Code/YOLOv3v4-ModelCompression-MultidatasetTraining-Multibackbone/datasets/test.shapes' # shapefile path
             try:
                 with open(sp, 'r') as f:  # read existing shapefile
                     s = [x.split() for x in f.read().splitlines()]
@@ -434,17 +438,15 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
     #     return self
 
     def __getitem__(self, index):
-
+        # time1=time.time()
         if self.image_weights:
             index = self.indices[index]
 
         hyp = self.hyp
-        time11=time.time()
         if self.mosaic:
             # Load mosaic
             img, labels = load_mosaic(self, index, self.is_gray_scale)
             shapes = None
-
 
         else:
             # Load image
@@ -465,12 +467,8 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 labels[:, 2] = ratio[1] * h * (x[:, 2] - x[:, 4] / 2) + pad[1]  # pad height
                 labels[:, 3] = ratio[0] * w * (x[:, 1] + x[:, 3] / 2) + pad[0]
                 labels[:, 4] = ratio[1] * h * (x[:, 2] + x[:, 4] / 2) + pad[1]
-        time22 = time.time()
-
-        time12=time.time()
 
         if self.augment:
-
             # Augment imagespace
             if not self.mosaic:
                 img, labels = random_affine(img, labels,
@@ -478,7 +476,6 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                                             translate=hyp['translate'],
                                             scale=hyp['scale'],
                                             shear=hyp['shear'])
-
 
             # Augment colorspace
             if not self.is_gray_scale:
@@ -515,8 +512,6 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         labels_out = torch.zeros((nL, 6))
         if nL:
             labels_out[:, 1:] = torch.from_numpy(labels)
-        time13=time.time()
-        # print("load_mosaic:{},else:{}".format((time22 - time11),(time13-time12)))
 
         # Convert
         if not self.is_gray_scale:
@@ -524,9 +519,12 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         img = np.ascontiguousarray(img)
         if self.is_gray_scale:
             img = np.expand_dims(img, axis=0)
-
+        time2=time.time()
+        # print()
+        # print("load:{} ,data{}".format(time2-time1,index))
 
         return torch.from_numpy(img), labels_out, self.img_files[index], shapes
+
     @staticmethod
     def collate_fn(batch):
         img, label, path, shapes = zip(*batch)  # transposed
@@ -537,7 +535,6 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
 def load_image(self, index, is_gray_scale=False):
     # loads 1 image from dataset, returns img, original hw, resized hw
-    time1=time.time()
     img = self.imgs[index]
     if img is None:  # not cached
         path = self.img_files[index]
@@ -554,12 +551,9 @@ def load_image(self, index, is_gray_scale=False):
             img = cv2.resize(img, (int(w0 * r), int(h0 * r)), interpolation=interp)
             if is_gray_scale:
                 img = np.expand_dims(img, axis=-1)
-        time2 = time.time()
-        # print("read:{},path:{},imsize:{}".format((time2 - time1), self.img_files[index],[h0,w0]))
         return img, (h0, w0), img.shape[:2]  # img, hw_original, hw_resized
     else:
         return self.imgs[index], self.img_hw0[index], self.img_hw[index]  # img, hw_original, hw_resized
-
 
 
 def augment_hsv(img, hgain=0.5, sgain=0.5, vgain=0.5):
@@ -588,12 +582,9 @@ def load_mosaic(self, index, is_gray_scale=False):
     s = self.img_size
     xc, yc = [int(random.uniform(s * 0.5, s * 1.5)) for _ in range(2)]  # mosaic center x, y
     indices = [index] + [random.randint(0, len(self.labels) - 1) for _ in range(3)]  # 3 additional image indices
-    time1=time.time()
-    images_file = []
     for i, index in enumerate(indices):
         # Load image
         img, _, (h, w) = load_image(self, index, is_gray_scale)
-        images_file.append(self.img_files[index])
 
         # place img in img4
         if i == 0:  # top left
@@ -623,7 +614,6 @@ def load_mosaic(self, index, is_gray_scale=False):
             labels[:, 3] = w * (x[:, 1] + x[:, 3] / 2) + padw
             labels[:, 4] = h * (x[:, 2] + x[:, 4] / 2) + padh
         labels4.append(labels)
-    time2=time.time()
 
     # Concat/clip labels
     if len(labels4):
@@ -632,7 +622,6 @@ def load_mosaic(self, index, is_gray_scale=False):
         np.clip(labels4[:, 1:], 0, 2 * s, out=labels4[:, 1:])  # use with random_affine
 
     # Augment
-    time3=time.time()
     # img4 = img4[s // 2: int(s * 1.5), s // 2:int(s * 1.5)]  # center crop (WARNING, requires box pruning)
     img4, labels4 = random_affine(img4, labels4,
                                   degrees=self.hyp['degrees'],
@@ -640,8 +629,6 @@ def load_mosaic(self, index, is_gray_scale=False):
                                   scale=self.hyp['scale'],
                                   shear=self.hyp['shear'],
                                   border=-s // 2)  # border to remove
-    time4=time.time()
-    # print("random_affine:{},load_image:{},index:{}".format((time4-time3),(time2-time1), "\n".join(images_file)))
 
     return img4, labels4
 

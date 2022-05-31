@@ -50,7 +50,7 @@ def test(cfg,
             load_darknet_weights(model, weights, FPGA=FPGA)
 
         # Fuse
-        model.fuse(quantized=quantized, FPGA=opt.FPGA)
+        # model.fuse(quantized=quantized, FPGA=opt.FPGA)
         model.to(device)
 
         if device.type != 'cpu' and torch.cuda.device_count() > 1:
@@ -257,16 +257,16 @@ def test(cfg,
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='test.py')
-    parser.add_argument('--cfg', type=str, default='cfg/yolov3tiny/yolov3-tiny3.cfg', help='*.cfg path')
-    parser.add_argument('--data', type=str, default='data/coco2017.data', help='*.data path')
-    parser.add_argument('--weights', type=str, default='weights/best.pt', help='weights path')
-    parser.add_argument('--batch-size', type=int, default=32, help='size of each image batch')
+    parser.add_argument('--cfg', type=str, default='weights/pruneV50_v1.cfg', help='*.cfg path')
+    parser.add_argument('--data', type=str, default='data/trainset.data', help='*.data path')
+    parser.add_argument('--weights', type=str, default='weights/pruneV50.weights', help='weights path')
+    parser.add_argument('--batch-size', type=int, default=8, help='size of each image batch')
     parser.add_argument('--img-size', type=int, default=416, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.001, help='object confidence threshold')
-    parser.add_argument('--iou-thres', type=float, default=0.6, help='IOU threshold for NMS')
+    parser.add_argument('--iou-thres', type=float, default=0.5, help='IOU threshold for NMS')
     parser.add_argument('--save-json', action='store_true', help='save a cocoapi-compatible JSON results file')
     parser.add_argument('--task', default='test', help="'test', 'study', 'benchmark'")
-    parser.add_argument('--device', default='', help='device id (i.e. 0 or 0,1) or cpu')
+    parser.add_argument('--device', default='0', help='device id (i.e. 0 or 0,1) or cpu')
     parser.add_argument('--single-cls', action='store_true', help='train as single-class dataset')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--quantized', type=int, default=-1, help='quantization way')
@@ -313,4 +313,3 @@ if __name__ == '__main__':
                 r = test(opt.cfg, opt.data, opt.weights, opt.batch_size, i, opt.conf_thres, j, opt.save_json)[0]
                 y.append(r + (time.time() - t,))
         np.savetxt('benchmark.txt', y, fmt='%10.4g')  # y = np.loadtxt('study.txt')
-

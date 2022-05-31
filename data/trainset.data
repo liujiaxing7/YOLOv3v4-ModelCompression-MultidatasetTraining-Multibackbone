@@ -1,4 +1,4 @@
 classes=6
 train=datasets/train.txt
 valid=datasets/test.txt
-names=data/trainset.names
+names=data/test.names

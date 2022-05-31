@@ -25,16 +25,24 @@ def convert():
 
     # Eval mode
     model.to(device).eval()
+    chkpt = {'epoch': -1,
+             'best_fitness': None,
+             'training_results': None,
+             'model': model.state_dict(),
+             'optimizer': None}
 
-    save_weights(model, path='weights/best.weights')
+    # target = weights.rsplit('.', 1)[0] + '.pt'
+    torch.save(chkpt, "yolov311111.pt")
+
+    # save_weights(model, path='weights/best.weights')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cfg', type=str, default='cfg/yolov3.cfg', help='cfg file path')
-    parser.add_argument('--weights', type=str, default='weights/yolov3.weights', help='path to weights file')
+    parser.add_argument('--cfg', type=str, default='runs/prune.cfg', help='cfg file path')
+    parser.add_argument('--weights', type=str, default='runs/v5.pt', help='path to weights file')
     parser.add_argument('--output', type=str, default='output', help='output folder')  # output folder
-    parser.add_argument('--img_size', type=int, default=416, help='inference size (pixels)')
+    parser.add_argument('--img_size', type=int, default=320, help='inference size (pixels)')
     parser.add_argument('--device', default='', help='device id (i.e. 0 or 0,1) or cpu')
     parser.add_argument('--gray-scale', action='store_true', help='gray scale trainning')
     opt = parser.parse_args()
